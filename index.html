@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>수박게임 클론</title>
+<style>
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fdf6e3;
+    font-family: "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+  }
+
+  h1 {
+    margin: 0 0 16px;
+    color: #c0392b;
+  }
+
+  .game-wrap {
+    display: flex;
+    gap: 16px;
+  }
+
+  .side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 140px;
+  }
+
+  .panel-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  .panel-label {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 6px;
+  }
+
+  .score-value {
+    font-size: 28px;
+    font-weight: bold;
+    color: #c0392b;
+  }
+
+  .next-preview {
+    font-size: 40px;
+    line-height: 1;
+  }
+
+  .restart-btn {
+    padding: 10px;
+    border: none;
+    border-radius: 10px;
+    background: #c0392b;
+    color: #fff;
+    font-size: 15px;
+    cursor: pointer;
+  }
+
+  .restart-btn:hover {
+    background: #a93226;
+  }
+
+  .canvas-wrap {
+    position: relative;
+  }
+
+  #game-canvas {
+    background: #fffdf5;
+    border: 3px solid #c0392b;
+    border-radius: 8px;
+    touch-action: none;
+    cursor: pointer;
+  }
+
+  .game-over {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+  }
+
+  .game-over.hidden {
+    display: none;
+  }
+
+  .game-over-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px 32px;
+    text-align: center;
+  }
+
+  .game-over-box h2 {
+    margin-top: 0;
+    color: #c0392b;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>수박게임</h1>
+
+    <div class="game-wrap">
+      <div class="side-panel">
+        <div class="panel-box">
+          <span class="panel-label">점수</span>
+          <span id="score" class="score-value">0</span>
+        </div>
+        <div class="panel-box">
+          <span class="panel-label">다음 과일</span>
+          <div id="next-preview" class="next-preview"></div>
+        </div>
+        <button id="restart-btn" class="restart-btn">재시작</button>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="game-canvas" width="400" height="600"></canvas>
+        <div id="game-over" class="game-over hidden">
+          <div class="game-over-box">
+            <h2>게임 오버</h2>
+            <p>최종 점수: <span id="final-score">0</span></p>
+            <button id="game-over-restart-btn" class="restart-btn">다시 시작</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 수박게임 클론 - 순수 JS 물리 구현 (라이브러리 없음)
+
+    const FRUITS = [
+      { name: "체리",     emoji: "🍒", radius: 14, color: "#e74c3c", score: 1 },
+      { name: "딸기",     emoji: "🍓", radius: 20, color: "#ff6b81", score: 3 },
+      { name: "포도",     emoji: "🍇", radius: 26, color: "#8e44ad", score: 6 },
+      { name: "귤",       emoji: "🍊", radius: 32, color: "#f39c12", score: 10 },
+      { name: "레몬",     emoji: "🍋", radius: 38, color: "#f4d03f", score: 15 },
+      { name: "사과",     emoji: "🍎", radius: 44, color: "#e74c3c", score: 21 },
+      { name: "배",       emoji: "🍐", radius: 50, color: "#a3cb38", score: 28 },
+      { name: "복숭아",   emoji: "🍑", radius: 58, color: "#ffb8b8", score: 36 },
+      { name: "파인애플", emoji: "🍍", radius: 66, color: "#f9ca24", score: 45 },
+      { name: "멜론",     emoji: "🍈", radius: 76, color: "#78e08f", score: 55 },
+      { name: "수박",     emoji: "🍉", radius: 88, color: "#2ecc71", score: 66 },
+    ];
+
+    const MAX_DROP_TIER = 4; // 처음 떨어뜨릴 수 있는 과일은 체리~레몬 중에서만 등장
+    const GRAVITY = 900; // px/s^2
+    const WALL_DAMPING = 0.5;
+    const RESTITUTION = 0.15;
+    const AIR_FRICTION = 0.995;
+    const MAX_SPEED = 1200; // px/s, 겹침 보정이 겹쳐서 폭발하듯 튕기는 것을 방지
+    const MAX_CORRECTION_PER_STEP = 6; // px, 완전히 겹친 과일도 한 프레임에 순간이동하지 않도록 제한
+    const COLLISION_ITERATIONS = 4; // 여러 과일이 동시에 맞닿았을 때 안정적으로 수렴시키기 위한 반복 횟수
+    // 쌓여서 정지한 과일도 중력/반발 보정 때문에 매 프레임 완전히 0이 되지는 않고
+    // 약 20~25px/s 정도의 잔류 진동이 남는다. 그보다 확실히 높은 값으로 "정지"를 판정한다.
+    const SETTLED_SPEED_THRESHOLD = 40;
+    const LINE_Y = 90; // 게임오버 판정선
+    const DANGER_TIME_LIMIT = 1.2; // 초 단위, 이 시간 이상 라인 위에 머물면 게임오버
+    const DROP_COOLDOWN = 0.35; // 초
+
+    const canvas = document.getElementById("game-canvas");
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const scoreEl = document.getElementById("score");
+    const nextPreviewEl = document.getElementById("next-preview");
+    const gameOverEl = document.getElementById("game-over");
+    const finalScoreEl = document.getElementById("final-score");
+    const restartBtn = document.getElementById("restart-btn");
+    const gameOverRestartBtn = document.getElementById("game-over-restart-btn");
+
+    let fruits = [];
+    let score = 0;
+    let isGameOver = false;
+    let dropCooldownTimer = 0;
+    let idCounter = 0;
+
+    let currentFruitTier = randomDropTier();
+    let nextFruitTier = randomDropTier();
+    let pointerX = W / 2;
+
+    function randomDropTier() {
+      return Math.floor(Math.random() * MAX_DROP_TIER);
+    }
+
+    function createFruit(tier, x, y) {
+      const def = FRUITS[tier];
+      return {
+        id: idCounter++,
+        tier,
+        x,
+        y,
+        // 완전히 같은 x좌표로만 계속 쌓이면 회전이 없는 원판 물리 특성상 무너지지 않고
+        // 얇은 탑처럼 끝없이 올라가므로, 아주 작은 무작위 수평 속도로 그 완벽한 균형을 깬다.
+        vx: (Math.random() - 0.5) * 8,
+        vy: 0,
+        radius: def.radius,
+        dangerTime: 0,
+        settled: false,
+      };
+    }
+
+    function resetGame() {
+      fruits = [];
+      score = 0;
+      isGameOver = false;
+      dropCooldownTimer = 0;
+      currentFruitTier = randomDropTier();
+      nextFruitTier = randomDropTier();
+      gameOverEl.classList.add("hidden");
+      updateScoreUI();
+      updateNextPreviewUI();
+    }
+
+    function updateScoreUI() {
+      scoreEl.textContent = score;
+    }
+
+    function updateNextPreviewUI() {
+      nextPreviewEl.textContent = FRUITS[nextFruitTier].emoji;
+    }
+
+    // ---- 입력 처리 ----
+
+    function getPointerX(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+      return (clientX - rect.left) * (W / rect.width);
+    }
+
+    canvas.addEventListener("mousemove", (e) => {
+      pointerX = getPointerX(e);
+    });
+
+    canvas.addEventListener("touchmove", (e) => {
+      pointerX = getPointerX(e);
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("click", (e) => {
+      dropCurrentFruit(getPointerX(e));
+    });
+
+    canvas.addEventListener("touchend", (e) => {
+      dropCurrentFruit(pointerX);
+    });
+
+    function dropCurrentFruit(x) {
+      if (isGameOver || dropCooldownTimer > 0) return;
+
+      const radius = FRUITS[currentFruitTier].radius;
+      const clampedX = Math.max(radius, Math.min(W - radius, x));
+
+      fruits.push(createFruit(currentFruitTier, clampedX, LINE_Y - radius - 10));
+
+      currentFruitTier = nextFruitTier;
+      nextFruitTier = randomDropTier();
+      updateNextPreviewUI();
+      dropCooldownTimer = DROP_COOLDOWN;
+    }
+
+    restartBtn.addEventListener("click", resetGame);
+    gameOverRestartBtn.addEventListener("click", resetGame);
+
+    // ---- 물리 & 병합 ----
+
+    function stepPhysics(dt) {
+      for (const f of fruits) {
+        f.vy += GRAVITY * dt;
+        f.x += f.vx * dt;
+        f.y += f.vy * dt;
+        f.vx *= AIR_FRICTION;
+        f.vy *= AIR_FRICTION;
+
+        // 벽 충돌
+        if (f.x - f.radius < 0) {
+          f.x = f.radius;
+          f.vx *= -WALL_DAMPING;
+        } else if (f.x + f.radius > W) {
+          f.x = W - f.radius;
+          f.vx *= -WALL_DAMPING;
+        }
+
+        // 바닥 충돌
+        if (f.y + f.radius > H) {
+          f.y = H - f.radius;
+          f.vy *= -WALL_DAMPING;
+        }
+
+        const speed = Math.hypot(f.vx, f.vy);
+        if (speed > MAX_SPEED) {
+          f.vx *= MAX_SPEED / speed;
+          f.vy *= MAX_SPEED / speed;
+        }
+      }
+
+      handleMerges();
+
+      // 여러 과일이 동시에 맞닿아 쌓인 상태는 한 번의 보정 패스로는 수렴하지 않으므로
+      // 같은 프레임 안에서 여러 번 반복 보정해 안정적으로 정지하게 한다.
+      for (let iter = 0; iter < COLLISION_ITERATIONS; iter++) {
+        resolveOverlaps();
+      }
+
+      for (const f of fruits) {
+        const speed = Math.abs(f.vx) + Math.abs(f.vy);
+        f.settled = speed < SETTLED_SPEED_THRESHOLD;
+      }
+    }
+
+    function handleMerges() {
+      const merged = new Set();
+      const toRemove = new Set();
+      const toAdd = [];
+
+      for (let i = 0; i < fruits.length; i++) {
+        const a = fruits[i];
+        if (merged.has(a.id)) continue;
+
+        for (let j = i + 1; j < fruits.length; j++) {
+          const b = fruits[j];
+          if (merged.has(b.id)) continue;
+          if (a.tier !== b.tier || a.tier >= FRUITS.length - 1) continue;
+
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const minDist = a.radius + b.radius;
+
+          if (dist >= minDist) continue;
+
+          const nx = (a.x + b.x) / 2;
+          const ny = (a.y + b.y) / 2;
+          const nextTier = a.tier + 1;
+
+          merged.add(a.id);
+          merged.add(b.id);
+          toRemove.add(a.id);
+          toRemove.add(b.id);
+          toAdd.push(createFruit(nextTier, nx, ny));
+
+          score += FRUITS[nextTier].score;
+        }
+      }
+
+      if (toRemove.size > 0) {
+        fruits = fruits.filter((f) => !toRemove.has(f.id));
+        fruits.push(...toAdd);
+        updateScoreUI();
+      }
+    }
+
+    function resolveOverlaps() {
+      for (let i = 0; i < fruits.length; i++) {
+        const a = fruits[i];
+
+        for (let j = i + 1; j < fruits.length; j++) {
+          const b = fruits[j];
+
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const minDist = a.radius + b.radius;
+
+          if (dist >= minDist) continue;
+
+          // 완전히 같은 위치에 겹쳐서 생성된 경우, 거리 기반 방향 대신
+          // 두 과일 id로 결정되는 고정 방향을 사용해 분리 방향이 매 프레임 흔들리지 않게 한다.
+          let nx, ny, overlap;
+          if (dist < 0.01) {
+            const angle = ((a.id * 928371 + b.id * 6151) % 360) * (Math.PI / 180);
+            nx = Math.cos(angle);
+            ny = Math.sin(angle);
+            overlap = minDist;
+          } else {
+            nx = dx / dist;
+            ny = dy / dist;
+            overlap = minDist - dist;
+          }
+          // 한 프레임에 순간이동하듯 튕기지 않도록 보정량 제한
+          overlap = Math.min(overlap, MAX_CORRECTION_PER_STEP);
+
+          const invMassA = 1 / (a.radius * a.radius);
+          const invMassB = 1 / (b.radius * b.radius);
+          const totalInv = invMassA + invMassB;
+
+          a.x -= nx * overlap * (invMassA / totalInv);
+          a.y -= ny * overlap * (invMassA / totalInv);
+          b.x += nx * overlap * (invMassB / totalInv);
+          b.y += ny * overlap * (invMassB / totalInv);
+
+          const rvx = b.vx - a.vx;
+          const rvy = b.vy - a.vy;
+          const velAlongNormal = rvx * nx + rvy * ny;
+
+          if (velAlongNormal > 0) continue;
+
+          // 접촉 속도가 아주 작으면(쌓여서 정지한 상태) 반발을 주지 않아
+          // 미세하게 계속 튕기며 settled 상태에 도달하지 못하는 것을 막는다.
+          const restitution = -velAlongNormal < 40 ? 0 : RESTITUTION;
+          const j2 = (-(1 + restitution) * velAlongNormal) / totalInv;
+          const impulseX = j2 * nx;
+          const impulseY = j2 * ny;
+
+          a.vx -= impulseX * invMassA;
+          a.vy -= impulseY * invMassA;
+          b.vx += impulseX * invMassB;
+          b.vy += impulseY * invMassB;
+        }
+      }
+    }
+
+    function checkGameOver(dt) {
+      for (const f of fruits) {
+        if (f.settled && f.y - f.radius < LINE_Y) {
+          f.dangerTime += dt;
+          if (f.dangerTime > DANGER_TIME_LIMIT) {
+            triggerGameOver();
+            return;
+          }
+        } else {
+          f.dangerTime = 0;
+        }
+      }
+    }
+
+    function triggerGameOver() {
+      isGameOver = true;
+      finalScoreEl.textContent = score;
+      gameOverEl.classList.remove("hidden");
+    }
+
+    // ---- 렌더링 ----
+
+    function drawFruit(f) {
+      const def = FRUITS[f.tier];
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
+      ctx.fillStyle = def.color;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(0,0,0,0.15)";
+      ctx.stroke();
+
+      ctx.font = `${f.radius}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(def.emoji, f.x, f.y);
+    }
+
+    function drawCurrentFruit() {
+      if (isGameOver) return;
+      const def = FRUITS[currentFruitTier];
+      const radius = def.radius;
+      const x = Math.max(radius, Math.min(W - radius, pointerX));
+      const y = LINE_Y - radius - 10;
+
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = def.color;
+      ctx.fill();
+      ctx.font = `${radius}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(def.emoji, x, y);
+      ctx.globalAlpha = 1;
+    }
+
+    function drawLine() {
+      ctx.beginPath();
+      ctx.setLineDash([6, 6]);
+      ctx.moveTo(0, LINE_Y);
+      ctx.lineTo(W, LINE_Y);
+      ctx.strokeStyle = "#e74c3c";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, W, H);
+      drawLine();
+      for (const f of fruits) drawFruit(f);
+      drawCurrentFruit();
+    }
+
+    // ---- 메인 루프 ----
+
+    let lastTime = null;
+    const FIXED_DT = 1 / 120;
+
+    function loop(timestamp) {
+      if (lastTime === null) lastTime = timestamp;
+      let frameDt = (timestamp - lastTime) / 1000;
+      lastTime = timestamp;
+      frameDt = Math.min(frameDt, 0.05); // 탭 전환 등으로 인한 큰 점프 방지
+
+      if (dropCooldownTimer > 0) dropCooldownTimer -= frameDt;
+
+      if (!isGameOver) {
+        let remaining = frameDt;
+        while (remaining > 0) {
+          const dt = Math.min(FIXED_DT, remaining);
+          stepPhysics(dt);
+          checkGameOver(dt);
+          remaining -= dt;
+        }
+      }
+
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
